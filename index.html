@@ -1,0 +1,218 @@
+<!doctype html>
+<html>
+<head>
+<style>
+body {
+  margin: 0;
+  padding: 0;
+}
+canvas {
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-crisp-edges;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+</style>
+</head>
+<body>
+<canvas id="canvas">
+</canvas>
+<script>
+var grass_trees_img = new Image();
+grass_trees_img.src = 'GrassAndTrees.png';
+var house_img = new Image();
+house_img.src = 'House.png';
+var villagers_img = new Image();
+villagers_img.src = 'villagers.png';
+
+var grid_width = 100;
+var grid_height = 100;
+var tile_size = 16;
+var walk_interval = 500;
+var village_territory_dist = 10 * tile_size;
+
+var canvas = document.getElementById('canvas');
+var ctx = canvas.getContext('2d');
+
+setupViewport();
+window.addEventListener('resize', setupViewport);
+
+function setupViewport() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+}
+
+// creating world
+let objects = [];
+for (let x = 0; x < grid_width; x++)
+  for (let y = 0; y < grid_height; y++)
+    if (Math.random() >= 0.75)
+      objects.push({x: x * tile_size, y: y * tile_size, type: 'tree', tree_x: random(1, 9), tree_y: random(0, 2)});
+
+// handle user events
+canvas.addEventListener('click', function(evt) {
+  // if there are disallowed squares, don't allow house-creation
+  if (hover_house.disallowed.length)
+    return;
+
+  let grid_x = Math.floor(evt.pageX / tile_size) - 1;
+  let grid_y = Math.floor(evt.pageY / tile_size) - 1;
+  let house = {x: grid_x * tile_size, y: grid_y * tile_size, type: 'house', starting: true};
+  objects.push(house);
+  
+  let center = {x: grid_x + 1, y: grid_y + 1};
+
+  //starting villagers
+  var placements = [
+    {x: -2, y: 0},
+    {x: 2, y: 0},
+    {x: 0, y: 2},
+    {x: 0, y: -2}
+  ];
+  let jobs = ['farmer', 'carpenter', 'carpenter', 'lumberjack'];
+  for (let v = 0; v < 4; v++) {
+    let placement = placements[v];
+    let job = jobs[v];
+    let pos = {x: center.x + placement.x, y: center.y + placement.y};
+    let color = random(0, 2);
+    objects.push({x: pos.x * tile_size, y: pos.y * tile_size, type: 'villager', job: job, house: house, color: color});
+  }
+});
+
+let hover_house = {w: 3, h: 3, disallowed: []};
+canvas.addEventListener('mousemove', function(evt) {
+  hover_house.x = Math.floor(evt.pageX / tile_size) - 1;
+  hover_house.y = Math.floor(evt.pageY / tile_size) - 1;
+  
+  hover_house.disallowed = [];
+  for (let obj of objects) {
+    if (obj.type == 'tree') {
+      let rect = {x: obj.x / tile_size, y: obj.y / tile_size, w: 1, h: 1};
+      if (intersects(rect, hover_house))
+        hover_house.disallowed.push(rect);
+    }
+  }
+});
+
+setInterval(function() {
+  for (let obj of objects) {
+    if (obj.job == 'lumberjack') {
+      
+      // find all possible trees near village
+      let trees = [];
+      for (let tile of objects) {
+        if (tile.type == 'tree') {
+          let distance = dist(tile, obj.house)
+          if (distance <= village_territory_dist)
+            trees.push(tile);
+        }
+      }
+      
+      // find nearest tree
+      let tree = min(trees, tree => dist(obj, tree));
+
+      // walk towards nearest tree, if blocked walk random direction
+      
+    }
+  }
+}, walk_interval);
+
+requestAnimationFrame(draw);
+function draw() {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  // draw grass
+  for (var x = 0; x < grid_width; x++)
+    for (var y = 0; y < grid_height; y++)
+      ctx.drawImage(grass_trees_img, 0, 0, tile_size, tile_size, x * tile_size, y * tile_size, tile_size, tile_size);
+
+  for (var obj of objects) {
+    let villager_y;
+    if (obj.job == 'carpenter')
+      villager_y = 2;
+    else if (obj.job == 'farmer')
+      villager_y = 0;
+    else if (obj.job == 'lumberjack')
+      villager_y = 1;
+
+    let w = 1;
+    let h = 1;
+    if (obj.type == 'house') {
+      w = 3;
+      h = 3;
+    }
+    else if (obj.type == 'tree') {
+      h = 2;
+    } 
+
+    if (obj.type == 'tree')
+      ctx.drawImage(grass_trees_img, obj.tree_x * tile_size, obj.tree_y * 2 * tile_size, tile_size, 2 * tile_size, obj.x, obj.y - tile_size, w * tile_size, h * tile_size);
+    else if (obj.type == 'house')
+      ctx.drawImage(house_img, 3 * tile_size, 0, 3 * tile_size, 3 * tile_size, obj.x, obj.y, w * tile_size, h * tile_size);
+    else if (obj.type == 'villager')
+      ctx.drawImage(villagers_img, obj.color * 4 * tile_size, villager_y * tile_size, tile_size, tile_size, obj.x, obj.y, tile_size, tile_size);
+    else
+      ctx.fillRect(obj.x, obj.y, w * tile_size, h * tile_size);
+  }
+
+  if (hover_house) {
+    ctx.globalAlpha = 0.4;
+    
+    ctx.drawImage(house_img, 3 * tile_size, 0, 3 * tile_size, 3 * tile_size, hover_house.x * tile_size, hover_house.y * tile_size, 3 * tile_size, 3 * tile_size);
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#FF0000';
+    for (let disallowed of hover_house.disallowed)
+      ctx.fillRect(disallowed.x * tile_size, disallowed.y * tile_size, tile_size, tile_size);
+    ctx.globalAlpha = 1;
+  }
+
+  requestAnimationFrame(draw);
+}
+//helper functions
+function dist(obj1, obj2) {
+  return Math.sqrt(Math.pow(obj1.x - obj2.x, 2) + Math.pow(obj1.y - obj2.y, 2));
+}
+
+function min(arr, fn) {
+  let minimum, min_item;
+  for (let item of arr) {
+    let val = fn(item);
+    if (minimum == null || val < minimum) {
+      minimum = val;
+      min_item = item;
+    }
+  }
+
+  return min_item;
+}
+
+function random(min, max) {
+  if (max == null) {
+    max = min;
+    min = 0;
+  }
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function intersects(rect1, rect2) {
+  rect1.x2 = rect1.x + rect1.w;
+  rect1.y2 = rect1.y + rect1.h;
+  rect2.x2 = rect2.x + rect2.w;
+  rect2.y2 = rect2.y + rect2.h;
+
+  var x = Math.max(rect1.x, rect2.x); // biggest left edge
+  var x2 = Math.min(rect1.x2, rect2.x2); // smallest right edge
+
+  var y = Math.max(rect1.y, rect2.y); // lowest top edge
+  var y2 = Math.min(rect1.y2, rect2.y2); // highest bottom edge
+
+  if (x >= x2 // if the biggest left edge is bigger than the smallest right edge
+    || y >= y2) // or the lowest top edge is lower than the highest bottom edge
+    return false; // then they don't actually intersect
+
+  return true;
+}
+
+</script>
+</body>
+</html>
