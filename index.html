@@ -28,8 +28,13 @@ villagers_img.src = 'villagers.png';
 var grid_width = 100;
 var grid_height = 100;
 var tile_size = 16;
-var walk_interval = 500;
+var walk_interval = 100;
+var tree_chopping_timeout = 30 * 1000;
 var village_territory_dist = 10 * tile_size;
+
+// activities
+var WALKING = 0;
+var CHOPPING = 1;
 
 var canvas = document.getElementById('canvas');
 var ctx = canvas.getContext('2d');
@@ -42,12 +47,14 @@ function setupViewport() {
   canvas.height = window.innerHeight * devicePixelRatio;
 }
 
-// creating world
+// create world
 let objects = [];
+
+// create trees
 for (let x = 0; x < grid_width; x++)
   for (let y = 0; y < grid_height; y++)
     if (Math.random() >= 0.75)
-      objects.push({x: x * tile_size, y: y * tile_size, type: 'tree', tree_x: random(1, 9), tree_y: random(0, 2)});
+      objects.push({x: x * tile_size, y: y * tile_size, type: 'tree', chopped: false, tree_x: random(1, 9), tree_y: random(0, 2)});
 
 // handle user events
 canvas.addEventListener('click', function(evt) {
@@ -57,7 +64,7 @@ canvas.addEventListener('click', function(evt) {
 
   let grid_x = Math.floor(evt.pageX / tile_size) - 1;
   let grid_y = Math.floor(evt.pageY / tile_size) - 1;
-  let house = {x: grid_x * tile_size, y: grid_y * tile_size, type: 'house', starting: true};
+  let house = {x: grid_x * tile_size, y: grid_y * tile_size, type: 'house', starting: true, wood: 0};
   objects.push(house);
   
   let center = {x: grid_x + 1, y: grid_y + 1};
@@ -75,7 +82,7 @@ canvas.addEventListener('click', function(evt) {
     let job = jobs[v];
     let pos = {x: center.x + placement.x, y: center.y + placement.y};
     let color = random(0, 2);
-    objects.push({x: pos.x * tile_size, y: pos.y * tile_size, type: 'villager', job: job, house: house, color: color});
+    objects.push({x: pos.x * tile_size, y: pos.y * tile_size, type: 'villager', job: job, house: house, color: color, dx: 0, dy: 0, speed: 1, activity: WALKING});
   }
 });
 
@@ -96,28 +103,65 @@ canvas.addEventListener('mousemove', function(evt) {
 
 setInterval(function() {
   for (let obj of objects) {
-    if (obj.job == 'lumberjack') {
-      
-      // find all possible trees near village
+    if (obj.job == 'lumberjack' && obj.activity == WALKING) {
+      let lumberjack = obj;
+
+      // find all possible non-chopped trees near village
       let trees = [];
       for (let tile of objects) {
-        if (tile.type == 'tree') {
-          let distance = dist(tile, obj.house)
+        if (tile.type == 'tree' && !tile.chopped) {
+          let distance = dist(tile, lumberjack.house)
           if (distance <= village_territory_dist)
             trees.push(tile);
         }
       }
       
       // find nearest tree
-      let tree = min(trees, tree => dist(obj, tree));
+      let tree = min(trees, tree => dist(lumberjack, tree));
 
       // walk towards nearest tree, if blocked walk random direction
-      
+      let tree_dist = tree ? dist(lumberjack, tree) : 0;
+
+      if (tree && Math.abs(tree_dist) < tile_size) {
+        lumberjack.activity = CHOPPING;
+        lumberjack.dx = 0;
+        lumberjack.dy = 0;
+        setTimeout(function() {
+          tree.chopped = true;
+          tree.tree_y = 3;
+          lumberjack.house.wood++;
+          lumberjack.activity = WALKING;
+        }, tree_chopping_timeout);
+      }
+      else if (tree_dist) {
+        lumberjack.dx = (tree.x - lumberjack.x) / tree_dist * lumberjack.speed;
+        lumberjack.dy = (tree.y - lumberjack.y) / tree_dist * lumberjack.speed;
+      }
+      else {
+        lumberjack.dx = 0;
+        lumberjack.dy = 0;
+      }
     }
   }
 }, walk_interval);
 
-requestAnimationFrame(draw);
+requestAnimationFrame(run);
+
+function run() {
+  update();
+  draw();
+  requestAnimationFrame(run);
+}
+
+function update() {
+  for (var object of objects) {
+    if (object.dx || object.dy) {
+      object.x += object.dx;
+      object.y += object.dy;
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
@@ -150,7 +194,7 @@ function draw() {
     else if (obj.type == 'house')
       ctx.drawImage(house_img, 3 * tile_size, 0, 3 * tile_size, 3 * tile_size, obj.x, obj.y, w * tile_size, h * tile_size);
     else if (obj.type == 'villager')
-      ctx.drawImage(villagers_img, obj.color * 4 * tile_size, villager_y * tile_size, tile_size, tile_size, obj.x, obj.y, tile_size, tile_size);
+      ctx.drawImage(villagers_img, obj.color * 4 * tile_size, villager_y * tile_size, tile_size, tile_size, Math.round(obj.x), Math.round(obj.y), tile_size, tile_size);
     else
       ctx.fillRect(obj.x, obj.y, w * tile_size, h * tile_size);
   }
@@ -165,9 +209,8 @@ function draw() {
       ctx.fillRect(disallowed.x * tile_size, disallowed.y * tile_size, tile_size, tile_size);
     ctx.globalAlpha = 1;
   }
-
-  requestAnimationFrame(draw);
 }
+
 //helper functions
 function dist(obj1, obj2) {
   return Math.sqrt(Math.pow(obj1.x - obj2.x, 2) + Math.pow(obj1.y - obj2.y, 2));
